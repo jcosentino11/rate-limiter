@@ -8,40 +8,70 @@ import (
 	"github.com/go-redis/redis/v8"
 )
 
-type RateLimiter struct {
+type Allowance struct {
+	count  int
+	period time.Duration
+}
+
+func PerSecond(n int) Allowance {
+	return Allowance{
+		count:  n,
+		period: time.Second,
+	}
+}
+
+type RateLimiter interface {
+	Aquire(ctx context.Context, key string) (bool, error)
+}
+
+type baseRateLimiter struct {
+	allowance Allowance
+}
+
+func newBaseRateLimiter(allowance Allowance) *baseRateLimiter {
+	return &baseRateLimiter{allowance: allowance}
+}
+
+type redisRateLimiter struct {
 	rdb *redis.Client
-	opt *Options
+	*baseRateLimiter
 }
 
-type Options struct {
-	RequestsPerSecond int64
-}
-
-func NewDefaultOptions() *Options {
-	return &Options{
-		RequestsPerSecond: 100,
+func newRedisRateLimiter(rdb *redis.Client, allowance Allowance) *redisRateLimiter {
+	return &redisRateLimiter{
+		rdb:             rdb,
+		baseRateLimiter: newBaseRateLimiter(allowance),
 	}
 }
 
-func NewRateLimiter(rdb *redis.Client, opt *Options) *RateLimiter {
-	return &RateLimiter{
-		rdb: rdb,
-		opt: opt,
+type TimestampBinnedRateLimiter struct {
+	*redisRateLimiter
+}
+
+func NewTimestampBinnedRateLimiter(rdb *redis.Client, allowance Allowance) *TimestampBinnedRateLimiter {
+	return &TimestampBinnedRateLimiter{
+		redisRateLimiter: newRedisRateLimiter(rdb, allowance),
 	}
 }
 
-func (rl *RateLimiter) Aquire(ctx context.Context, key string) (bool, error) {
-	// bin key by second
-	currSecond := fmt.Sprintf("%d", time.Now().Unix())
-	timeBoxedKey := key + ":" + currSecond
+func (rl *TimestampBinnedRateLimiter) timeBucket() string {
+	// TODO minutes, hour, day
+	return fmt.Sprintf("%d", time.Now().Unix())
+}
 
-	pipe := rl.rdb.Pipeline()
-	incr := pipe.Incr(ctx, timeBoxedKey)
-	pipe.Expire(ctx, key, 2*time.Second)
+func (rl *TimestampBinnedRateLimiter) Aquire(ctx context.Context, key string) (bool, error) {
+	timeBoxedKey := key + ":" + rl.timeBucket()
 
-	if _, err := pipe.Exec(ctx); err != nil {
+	var incr *redis.IntCmd
+	_, err := rl.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
+		incr = p.Incr(ctx, timeBoxedKey)
+		p.Expire(ctx, key, rl.allowance.period)
+		return nil
+	})
+
+	if err != nil {
 		return false, err
 	}
 
-	return incr.Val() <= rl.opt.RequestsPerSecond, nil
+	return incr.Val() <= int64(rl.allowance.count), nil
 }
