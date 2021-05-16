@@ -2,6 +2,7 @@ package ratelimiter
 
 import (
 	"context"
+	"math/rand"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -102,8 +103,10 @@ func TestRateLimitNotExceeded(t *testing.T) {
 
 	var wg sync.WaitGroup
 	var numSuccessfulAquire uint64
+	var totalNumAquire uint64
 
 	aquire := func() bool {
+		atomic.AddUint64(&totalNumAquire, 1)
 		allowed, err := rl.Aquire(ctx, key)
 		if err != nil {
 			panic(err)
@@ -122,22 +125,24 @@ func TestRateLimitNotExceeded(t *testing.T) {
 	}
 
 	// spam requests
-	func(minRequestPerSecond int) {
+	func(minRequestPerSecond int, maxRequestPerSecond int) {
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			default:
 				aquireAsync()
-				time.Sleep(time.Second / time.Duration(minRequestPerSecond))
+				time.Sleep(time.Second / time.Duration(rand.Intn(minRequestPerSecond)+(maxRequestPerSecond-minRequestPerSecond)))
 			}
 		}
-	}(count + 20) // ensure we spam more requests than the rate limit
+	}(count, count*5) // ensure we spam more requests than the rate limit
 
 	wg.Wait()
 
-	expectedNumSuccessfulAquire := uint64(count * testDurationSeconds)
-	if numSuccessfulAquire > expectedNumSuccessfulAquire {
-		t.Fatalf("Too many requests allowed by the rate limiter. maxExpected=%d, actual=%d", expectedNumSuccessfulAquire, numSuccessfulAquire)
+	maxExpectedNumSuccessfulAquire := uint64((count + 1) * testDurationSeconds)
+	if numSuccessfulAquire > maxExpectedNumSuccessfulAquire {
+		t.Fatalf("Too many requests allowed by the rate limiter. maxExpected=%d, actual=%d, totalRequests=%d", maxExpectedNumSuccessfulAquire, numSuccessfulAquire, totalNumAquire)
+	} else {
+		t.Logf("Rate limiting passed. maxExpected=%d, actual=%d, totalRequests=%d", maxExpectedNumSuccessfulAquire, numSuccessfulAquire, totalNumAquire)
 	}
 }

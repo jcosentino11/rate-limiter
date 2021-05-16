@@ -1,6 +1,6 @@
 
 test:
-	go test -short
+	go test -short -v
 
 test-all:
-	go test
+	go test -v

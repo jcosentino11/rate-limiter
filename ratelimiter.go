@@ -62,10 +62,17 @@ func (rl *TimestampBinnedRateLimiter) timeBucket() string {
 func (rl *TimestampBinnedRateLimiter) Aquire(ctx context.Context, key string) (bool, error) {
 	timeBoxedKey := key + ":" + rl.timeBucket()
 
+	counter := rl.rdb.Get(ctx, timeBoxedKey)
+	if counter.Err() != redis.Nil {
+		if val, _ := counter.Int64(); val >= int64(rl.allowance.count) {
+			return false, nil
+		}
+	}
+
 	var incr *redis.IntCmd
 	_, err := rl.rdb.TxPipelined(ctx, func(p redis.Pipeliner) error {
 		incr = p.Incr(ctx, timeBoxedKey)
-		p.Expire(ctx, key, rl.allowance.period)
+		p.Expire(ctx, timeBoxedKey, rl.allowance.period)
 		return nil
 	})
 
