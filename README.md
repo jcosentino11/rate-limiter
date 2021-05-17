@@ -7,5 +7,5 @@ Various rate-limiting algorithms, implemented with go and redis.
 
 # References
 
-https://brandur.org/rate-limiting
-https://redislabs.com/redis-best-practices/basic-rate-limiting/
+* https://brandur.org/rate-limiting
+* https://redislabs.com/redis-best-practices/basic-rate-limiting/
