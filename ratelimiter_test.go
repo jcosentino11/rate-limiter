@@ -88,10 +88,6 @@ func TestAquire(t *testing.T) {
 }
 
 func TestRateLimitNotExceeded(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping long test")
-	}
-
 	testDurationSeconds := 10
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(testDurationSeconds)*time.Second)
 	defer cancel()

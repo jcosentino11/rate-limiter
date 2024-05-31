@@ -55,7 +55,6 @@ func NewTimestampBinnedRateLimiter(rdb *redis.Client, allowance Allowance) *Time
 }
 
 func (rl *TimestampBinnedRateLimiter) timeBucket() string {
-	// TODO minutes, hour, day
 	return fmt.Sprintf("%d", time.Now().Unix())
 }
 
